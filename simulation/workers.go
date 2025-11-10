@@ -23,7 +23,7 @@ func GenerateRandomIMXData() IMXData {
 		CalidadFrame:   20.0,
 		Confiabilidad:  0.0,
 		Event:          true,
-		Timestamp:      time.Now().Format(time.RFC3339),
+        Timestamp:      time.Now().Format("2006-01-02 15:04:05"),	
 	}
 }
 
@@ -41,7 +41,7 @@ func GenerateRandomMPUData(tilt float64) MPUData { // <-- 1. Acepta 'tilt'
 		Pitch:     0.5 + rand.Float64()*1.0,
 		Apertura:  tilt * 1.5,
 		Event:     true,
-		Timestamp: time.Now().Format(time.RFC3339),
+		Timestamp: time.Now().Format("2006-01-02 15:04:05"),
 	}
 }
 
@@ -56,7 +56,7 @@ func GenerateRandomTFLunaData() TFLunaData {
 		FuerzaSenal: 5000 + rand.Intn(1000),
 		Temperatura: 50.0 + rand.Float64()*5.0,
 		Event:       true,
-		Timestamp:   time.Now().Format(time.RFC3339),
+		Timestamp:   time.Now().Format("2006-01-02 15:04:05"),
 	}
 }
 
