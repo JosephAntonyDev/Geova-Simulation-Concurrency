@@ -15,7 +15,7 @@ import (
 
 func GenerateRandomIMXData() IMXData {
 	return IMXData{
-		IDProject:      1,
+		IDProject:      4,
 		Resolution:     "640x480",
 		Luminosidad:    5.0 + rand.Float64()*10.0,
 		Nitidez:        4.0 + rand.Float64()*2.0,
@@ -29,7 +29,7 @@ func GenerateRandomIMXData() IMXData {
 
 func GenerateRandomMPUData(tilt float64) MPUData {
 	return MPUData{
-		IDProject: 1,
+		IDProject: 4,
 		Ax:        0.1 + rand.Float64()*0.1,
 		Ay:        -0.05 + rand.Float64()*0.1,
 		Az:        9.8 + rand.Float64()*0.1,
@@ -47,7 +47,7 @@ func GenerateRandomMPUData(tilt float64) MPUData {
 func GenerateRandomTFLunaData() TFLunaData {
 	distCm := 150 + rand.Intn(150) // 150-300 cm
 	return TFLunaData{
-		IDProject:   1,
+		IDProject:   4,
 		DistanciaCm: distCm,
 		DistanciaM:  float64(distCm) / 100.0,
 		FuerzaSenal: 5000 + rand.Intn(1000),

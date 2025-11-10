@@ -9,6 +9,9 @@ import (
 
 // Assets almacena todos los sprites cargados en memoria.
 type Assets struct {
+	// Fondo
+	Background *ebiten.Image
+
 	// Hardware
 	GeovaTripod *ebiten.Image
 	UITiltMeter *ebiten.Image // (El medidor de inclinación)
@@ -47,10 +50,22 @@ func loadSprite(path string) *ebiten.Image {
 	return img
 }
 
+// loadSpriteOptional carga un sprite, pero retorna nil si no existe (sin fallar)
+func loadSpriteOptional(path string) *ebiten.Image {
+	img, _, err := ebitenutil.NewImageFromFile(path)
+	if err != nil {
+		log.Printf("Advertencia: No se pudo cargar el asset opcional '%s': %v", path, err)
+		return nil
+	}
+	return img
+}
+
 // LoadAssets carga todas las imágenes del juego desde la carpeta /images
-// ¡Asegúrate de que los nombres de archivo coincidan!
 func LoadAssets() *Assets {
 	return &Assets{
+		// Fondo (opcional)
+		Background: loadSpriteOptional("images/background.png"),
+
 		// Hardware
 		GeovaTripod: loadSprite("images/geova_tripod.png"),
 		UITiltMeter: loadSprite("images/geova_tilt_anim.png"),
@@ -69,7 +84,7 @@ func LoadAssets() *Assets {
 		DataPacketAnim: loadSprite("images/data_packet_anim.png"),
 
 		// Frontend
-		IconMonitor:    loadSprite("images/frontend_monitor.png"),
+		IconMonitor:    loadSprite("images/monitor.png"),
 		UIGaugeBG:      loadSprite("images/ui_gauge_background.png"),
 		UIGaugeNeedle:  loadSprite("images/ui_gauge_needle.png"),
 		UIProgressBG:   loadSprite("images/ui_progressbar_background.png"),

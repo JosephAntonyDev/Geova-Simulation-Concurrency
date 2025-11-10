@@ -14,12 +14,13 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
-// --- Constantes de Posición CORREGIDAS ---
+// --- Constantes de Configuración ---
 const (
+	// Posiciones del Hardware
 	tripodeX = 80.0
 	tripodeY = 200.0
 
-	// Iconos alineados horizontalmente
+	// Posiciones de los Iconos de Backend (alineados horizontalmente)
 	iconPythonX    = 250.0
 	iconPythonY    = 200.0
 	iconRabbitX    = 400.0
@@ -27,19 +28,26 @@ const (
 	iconWebsocketX = 550.0
 	iconWebsocketY = 200.0
 
+	// Posición del Monitor (Frontend)
 	monitorX = 620.0
 	monitorY = 180.0
 
+	// Medidor de Inclinación (UI superior)
 	tiltMeterX = 100.0
 	tiltMeterY = 50.0
 
+	// Dashboard de Resultados
 	dashboardX = 50.0
 	dashboardY = 450.0
 
-	packetSpeed = 3.0 // Velocidad aumentada para mejor fluidez
-
-	// Delay en frames para que el icono "procese" antes de enviar
-	processingDelay = 30 // 0.5 segundos a 60 FPS
+	// Configuración de Animación
+	packetSpeed     = 3.0  // Velocidad de movimiento de paquetes (px/frame)
+	processingDelay = 30   // Frames de delay en procesamiento (0.5s a 60 FPS)
+	
+	// Configuración de Sprites
+	tripodeFrameWidth  = 128  // Ancho de cada frame del trípode
+	tripodeFrameHeight = 128  // Alto de cada frame del trípode
+	tripodeFrameCount  = 7    // Total de frames en la animación
 )
 
 type Game struct {
@@ -264,7 +272,8 @@ func (g *Game) updateDashboard(packet *state.PacketState) {
 // ============ DRAW METHODS ============
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	screen.Fill(color.RGBA{R: 0x1a, G: 0x1a, B: 0x1a, A: 255})
+	// Dibujar fondo
+	g.drawBackground(screen)
 
 	// Dibujar elementos en orden de profundidad
 	g.drawTripode(screen)
@@ -278,47 +287,65 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	ebitenutil.DebugPrintAt(screen, "Controles:  Flechas <- -> para inclinar ANTES de crear  |  Click en CREAR  |  F11 pantalla completa", 10, 10)
 }
 
+func (g *Game) drawBackground(screen *ebiten.Image) {
+	if g.Assets.Background != nil {
+		// Si hay imagen de fondo, escalarla para llenar la pantalla
+		op := &ebiten.DrawImageOptions{}
+		screenW, screenH := screen.Bounds().Dx(), screen.Bounds().Dy()
+		bgW, bgH := g.Assets.Background.Bounds().Dx(), g.Assets.Background.Bounds().Dy()
+		
+		scaleX := float64(screenW) / float64(bgW)
+		scaleY := float64(screenH) / float64(bgH)
+		
+		op.GeoM.Scale(scaleX, scaleY)
+		screen.DrawImage(g.Assets.Background, op)
+	} else {
+		// Fondo por defecto (gris oscuro)
+		screen.Fill(color.RGBA{R: 0x1a, G: 0x1a, B: 0x1a, A: 255})
+	}
+}
+
 func (g *Game) drawTripode(screen *ebiten.Image) {
 	opTripode := &ebiten.DrawImageOptions{}
 	opTripode.GeoM.Translate(tripodeX, tripodeY)
 
-	// El sprite geova_tilt_anim.png tiene 7 frames horizontales (128x128 cada uno)
-	// Total: 896x128 (7 frames de 128x128)
-	frameWidth := 128
-	frameHeight := 128
-	frameIndex := 3 // Por defecto, nivelado (centro - frame 3 de 7)
-
-	// Seleccionar frame según inclinación (7 frames: 0 a 6)
-	// Frame 0: Máxima inclinación izquierda (-15°)
-	// Frame 1: Inclinación izquierda media-alta (-10°)
-	// Frame 2: Inclinación izquierda media-baja (-5°)
-	// Frame 3: Nivelado (0°)
-	// Frame 4: Inclinación derecha media-baja (+5°)
-	// Frame 5: Inclinación derecha media-alta (+10°)
-	// Frame 6: Máxima inclinación derecha (+15°)
-	tilt := g.State.CurrentTilt
-	if tilt <= -12.5 {
-		frameIndex = 0
-	} else if tilt <= -7.5 {
-		frameIndex = 1
-	} else if tilt <= -2.5 {
-		frameIndex = 2
-	} else if tilt < 2.5 {
-		frameIndex = 3
-	} else if tilt < 7.5 {
-		frameIndex = 4
-	} else if tilt < 12.5 {
-		frameIndex = 5
-	} else {
-		frameIndex = 6
-	}
+	// Calcular el frame según la inclinación
+	frameIndex := g.getTripodeFrame(g.State.CurrentTilt)
 
 	// Calcular región del sprite (frames horizontales)
-	sx := frameIndex * frameWidth
-	rect := image.Rect(sx, 0, sx+frameWidth, frameHeight)
+	sx := frameIndex * tripodeFrameWidth
+	rect := image.Rect(sx, 0, sx+tripodeFrameWidth, tripodeFrameHeight)
 
 	// Dibujar el frame correcto de geova_tilt_anim.png
 	screen.DrawImage(g.Assets.UITiltMeter.SubImage(rect).(*ebiten.Image), opTripode)
+}
+
+// getTripodeFrame retorna el índice del frame según la inclinación
+// El sprite geova_tilt_anim.png tiene 7 frames horizontales (128x128 cada uno)
+// Frame 0: Máxima inclinación izquierda (-15°)
+// Frame 1: Inclinación izquierda media-alta (-10°)
+// Frame 2: Inclinación izquierda media-baja (-5°)
+// Frame 3: Nivelado (0°)
+// Frame 4: Inclinación derecha media-baja (+5°)
+// Frame 5: Inclinación derecha media-alta (+10°)
+// Frame 6: Máxima inclinación derecha (+15°)
+func (g *Game) getTripodeFrame(tilt float64) int {
+	switch {
+	case tilt <= -12.5:
+		return 0
+	case tilt <= -7.5:
+		return 1
+	case tilt <= -2.5:
+		return 2
+	case tilt < 2.5:
+		return 3
+	case tilt < 7.5:
+		return 4
+	case tilt < 12.5:
+		return 5
+	default:
+		return 6
+	}
 }
 
 func (g *Game) drawTiltMeter(screen *ebiten.Image) {
