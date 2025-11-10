@@ -1,7 +1,7 @@
 package main
 
 import (
-	"geova-simulation/assets"     // ¡Ajusta si tu 'go.mod' es diferente!
+	"geova-simulation/assets"
 	"geova-simulation/game"
 	"geova-simulation/state"
 	"image"
@@ -14,8 +14,8 @@ import (
 
 // --- Constantes Globales ---
 const (
-	windowWidth  = 800
-	windowHeight = 600
+	windowWidth  = 900
+	windowHeight = 650
 )
 
 func main() {

@@ -8,38 +8,40 @@ import (
 	"image"
 	"image/color"
 	"math"
-	_"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 )
 
-// --- Constantes de Posición (¡CORREGIDAS!) ---
+// --- Constantes de Posición CORREGIDAS ---
 const (
-	tripodeX = 80.0 // Movido a la izquierda
+	tripodeX = 80.0
 	tripodeY = 200.0
 
-	iconPythonX    = 250.0 // Iconos más juntos
+	// Iconos alineados horizontalmente
+	iconPythonX    = 250.0
 	iconPythonY    = 200.0
-	iconRabbitX    = 350.0
+	iconRabbitX    = 400.0
 	iconRabbitY    = 200.0
-	iconWebsocketX = 450.0
+	iconWebsocketX = 550.0
 	iconWebsocketY = 200.0
 
-	monitorX = 600.0 // Monitor movido a la izquierda
-	monitorY = 200.0 // Monitor alineado
+	monitorX = 620.0
+	monitorY = 180.0
 
 	tiltMeterX = 100.0
-	tiltMeterY = 300.0
+	tiltMeterY = 50.0
 
 	dashboardX = 50.0
-	dashboardY = 400.0
+	dashboardY = 450.0
 
-	packetSpeed = 2.0 // Píxeles por frame
+	packetSpeed = 3.0 // Velocidad aumentada para mejor fluidez
+
+	// Delay en frames para que el icono "procese" antes de enviar
+	processingDelay = 30 // 0.5 segundos a 60 FPS
 )
 
-// Game implementa la interfaz ebiten.Game
 type Game struct {
 	Assets *assets.Assets
 	State  *state.VisualState
@@ -47,12 +49,10 @@ type Game struct {
 	BotonRect      image.Rectangle
 	isBotonPressed bool
 
-	// Contadores para animaciones (sprite sheets)
 	animPacketCounter int
 	animIconCounter   int
 }
 
-// NewGame es el constructor de nuestro juego
 func NewGame(assets *assets.Assets, state *state.VisualState, btnRect image.Rectangle) *Game {
 	return &Game{
 		Assets:    assets,
@@ -61,25 +61,18 @@ func NewGame(assets *assets.Assets, state *state.VisualState, btnRect image.Rect
 	}
 }
 
-// --- Lógica Principal (Update) ---
-
 func (g *Game) Update() error {
-	// Incrementa los contadores de animación (para los sprite sheets)
 	g.animPacketCounter = (g.animPacketCounter + 1) % 360
 	g.animIconCounter = (g.animIconCounter + 1) % 360
 
-	// --- 1. Manejar Input del Usuario ---
 	g.handleInput()
-
-	// --- 2. Actualizar la Máquina de Estados (FSM) ---
 	g.updatePacketFSM()
 
 	return nil
 }
 
-// --- ¡handleInput MODIFICADO! ---
 func (g *Game) handleInput() {
-	// --- ¡NUEVO! Lógica de Pantalla Completa ---
+	// Pantalla completa con F11
 	if inpututil.IsKeyJustPressed(ebiten.KeyF11) {
 		ebiten.SetFullscreen(!ebiten.IsFullscreen())
 	}
@@ -87,11 +80,11 @@ func (g *Game) handleInput() {
 	x, y := ebiten.CursorPosition()
 	clickPoint := image.Pt(x, y)
 
-	// Lógica visual del botón (presionado o no)
-	g.isBotonPressed = g.BotonRect.Bounds().Canon().Overlaps(image.Rectangle{Min: clickPoint, Max: clickPoint.Add(image.Pt(1, 1))}) &&
-		ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
+	g.isBotonPressed = g.BotonRect.Bounds().Canon().Overlaps(
+		image.Rectangle{Min: clickPoint, Max: clickPoint.Add(image.Pt(1, 1))},
+	) && ebiten.IsMouseButtonPressed(ebiten.MouseButtonLeft)
 
-	// Lógica de inclinación (simulada)
+	// Control de inclinación con teclado
 	if ebiten.IsKeyPressed(ebiten.KeyLeft) && g.State.CurrentTilt > -15.0 {
 		g.State.CurrentTilt -= 0.5
 	}
@@ -99,282 +92,416 @@ func (g *Game) handleInput() {
 		g.State.CurrentTilt += 0.5
 	}
 
-	// --- ¡EL FAN-OUT! (Al hacer clic en el botón) ---
+	// Iniciar simulación con click en botón
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) && !g.State.SimulacionIniciada {
-		if g.BotonRect.Bounds().Canon().Overlaps(image.Rectangle{Min: clickPoint, Max: clickPoint.Add(image.Pt(1, 1))}) {
+		if g.BotonRect.Bounds().Canon().Overlaps(
+			image.Rectangle{Min: clickPoint, Max: clickPoint.Add(image.Pt(1, 1))},
+		) {
 			g.startSimulation()
 		}
 	}
 }
 
 func (g *Game) startSimulation() {
-	// Resetea el estado
 	g.State.Mutex.Lock()
+
+	// Resetear todo el estado
 	g.State.Packets = make(map[string]*state.PacketState)
 	g.State.DisplayDistancia = 0
 	g.State.DisplayNitidez = 0
 	g.State.DisplayRoll = 0
-	g.State.SimulacionIniciada = true // Bloquea el botón
+	g.State.SimulacionIniciada = true
+	g.State.PythonAPITimer = 0
+	g.State.RabbitMQTimer = 0
+	g.State.WebsocketAPITimer = 0
+
+	tilt := g.State.CurrentTilt
 	g.State.Mutex.Unlock()
 
-	// ¡Lanza las 3 goroutines (los workers)!
-	tilt := g.State.CurrentTilt
-
-	go simulation.SendPOSTRequest(
-		"http://localhost:8000/imx477/sensor",
-		simulation.GenerateRandomIMXData(),
-		"imx", g.State, 200.0, color.RGBA{G: 255, A: 255}, // Verde
-	)
-	go simulation.SendPOSTRequest(
-		"http://localhost:8000/mpu/sensor",
-		simulation.GenerateRandomMPUData(tilt), // Pasa la inclinación
-		"mpu", g.State, 230.0, color.RGBA{B: 255, A: 255}, // Azul
-	)
+	// Lanzar las 3 goroutines con colores distintivos
 	go simulation.SendPOSTRequest(
 		"http://localhost:8000/tfluna/sensor",
 		simulation.GenerateRandomTFLunaData(),
-		"tfluna", g.State, 260.0, color.RGBA{R: 255, A: 255}, // Rojo
+		"tfluna", g.State, 180.0, color.RGBA{R: 255, G: 50, B: 50, A: 255}, // Rojo
+	)
+	go simulation.SendPOSTRequest(
+		"http://localhost:8000/mpu/sensor",
+		simulation.GenerateRandomMPUData(tilt),
+		"mpu", g.State, 200.0, color.RGBA{R: 50, G: 150, B: 255, A: 255}, // Azul
+	)
+	go simulation.SendPOSTRequest(
+		"http://localhost:8000/imx477/sensor",
+		simulation.GenerateRandomIMXData(),
+		"imx", g.State, 220.0, color.RGBA{R: 50, G: 255, B: 50, A: 255}, // Verde
 	)
 }
 
-// updatePacketFSM (Sin cambios)
 func (g *Game) updatePacketFSM() {
 	g.State.Mutex.Lock()
 	defer g.State.Mutex.Unlock()
 
-	// Decrementa los timers de animación de los iconos
-	if g.State.PythonAPITimer > 0 { g.State.PythonAPITimer-- }
-	if g.State.RabbitMQTimer > 0 { g.State.RabbitMQTimer-- }
-	if g.State.WebsocketAPITimer > 0 { g.State.WebsocketAPITimer-- }
+	// Decrementar timers de animación
+	if g.State.PythonAPITimer > 0 {
+		g.State.PythonAPITimer--
+	}
+	if g.State.RabbitMQTimer > 0 {
+		g.State.RabbitMQTimer--
+	}
+	if g.State.WebsocketAPITimer > 0 {
+		g.State.WebsocketAPITimer--
+	}
 
 	allDone := true
+
 	for _, packet := range g.State.Packets {
+		// Ignorar paquetes que ya terminaron o fallaron
 		if packet.Status == state.Error || packet.Status == state.Done {
-			continue // Este paquete ya terminó
+			continue
 		}
 
-		allDone = false // Si al menos uno no ha terminado, la simulación no ha acabado
+		allDone = false
 
 		// Mover el paquete hacia su objetivo
-		if math.Abs(packet.X - packet.TargetX) > packetSpeed {
-			if packet.X < packet.TargetX { packet.X += packetSpeed }
+		dx := packet.TargetX - packet.X
+		dy := packet.TargetY - packet.Y
+		distance := math.Sqrt(dx*dx + dy*dy)
+
+		if distance > packetSpeed {
+			// Mover hacia el objetivo
+			packet.X += (dx / distance) * packetSpeed
+			packet.Y += (dy / distance) * packetSpeed
 		} else {
+			// Llegó al objetivo
 			packet.X = packet.TargetX
-		}
+			packet.Y = packet.TargetY
 
-		// Comprobar si llegó al objetivo
-		if packet.X == packet.TargetX {
-			
-			// Lógica de la FSM basada en el estado actual
-			switch packet.Status {
-			
-			case state.ArrivedAtAPI:
-				g.State.PythonAPITimer = 60 // Activa anim (1 segundo)
-				packet.Status = state.SendingToRabbit
-				packet.TargetX = iconRabbitX
-				packet.TargetY = iconRabbitY
-
-			case state.SendingToRabbit:
-				if packet.X >= iconRabbitX { // Comprueba si "llegó"
-					packet.Status = state.ArrivedAtRabbit
-				}
-
-			case state.ArrivedAtRabbit:
-				g.State.RabbitMQTimer = 60
-				packet.Status = state.SendingToWebsocket
-				packet.TargetX = iconWebsocketX
-				packet.TargetY = iconWebsocketY
-
-			case state.SendingToWebsocket:
-				if packet.X >= iconWebsocketX {
-					packet.Status = state.ArrivedAtWebsocket
-				}
-			
-			case state.ArrivedAtWebsocket:
-				g.State.WebsocketAPITimer = 60
-				packet.Status = state.SendingToFrontend
-				packet.TargetX = monitorX
-				packet.TargetY = monitorY
-			
-			case state.SendingToFrontend:
-				if packet.X >= monitorX {
-					packet.Status = state.Done
-					packet.Active = false // Deja de dibujarlo
-					
-					// ¡ACTUALIZA EL DASHBOARD!
-					// Extrae los datos del payload guardado
-					switch data := packet.Payload.(type) {
-					case simulation.TFLunaData:
-						g.State.DisplayDistancia = data.DistanciaM
-					case simulation.MPUData:
-						g.State.DisplayRoll = data.Roll
-					case simulation.IMXData:
-						g.State.DisplayNitidez = data.Nitidez
-					}
-				}
-			}
+			// Transición de estado según la FSM
+			g.handlePacketArrival(packet)
 		}
 	}
-	
-	if allDone {
-		g.State.SimulacionIniciada = false // Reactiva el botón
+
+	// Si todos los paquetes terminaron, reactivar el botón
+	if allDone && len(g.State.Packets) > 0 {
+		g.State.SimulacionIniciada = false
 	}
 }
 
+func (g *Game) handlePacketArrival(packet *state.PacketState) {
+	switch packet.Status {
+	case state.SendingToAPI:
+		// No hacer nada, esperar que el worker cambie el estado a ArrivedAtAPI
 
-// --- Lógica de Dibujado (Draw) ---
+	case state.ArrivedAtAPI:
+		// Activar animación del icono Python
+		g.State.PythonAPITimer = processingDelay
+		packet.ProcessingTimer = processingDelay
+		packet.Status = state.ProcessingAtAPI
+
+	case state.ProcessingAtAPI:
+		// Esperar el timer de procesamiento
+		if packet.ProcessingTimer > 0 {
+			packet.ProcessingTimer--
+		} else {
+			packet.Status = state.SendingToRabbit
+			packet.TargetX = iconRabbitX
+			packet.TargetY = iconRabbitY
+		}
+
+	case state.SendingToRabbit:
+		if packet.X == packet.TargetX && packet.Y == packet.TargetY {
+			g.State.RabbitMQTimer = processingDelay
+			packet.ProcessingTimer = processingDelay
+			packet.Status = state.ProcessingAtRabbit
+		}
+
+	case state.ProcessingAtRabbit:
+		if packet.ProcessingTimer > 0 {
+			packet.ProcessingTimer--
+		} else {
+			packet.Status = state.SendingToWebsocket
+			packet.TargetX = iconWebsocketX
+			packet.TargetY = iconWebsocketY
+		}
+
+	case state.SendingToWebsocket:
+		if packet.X == packet.TargetX && packet.Y == packet.TargetY {
+			g.State.WebsocketAPITimer = processingDelay
+			packet.ProcessingTimer = processingDelay
+			packet.Status = state.ProcessingAtWebsocket
+		}
+
+	case state.ProcessingAtWebsocket:
+		if packet.ProcessingTimer > 0 {
+			packet.ProcessingTimer--
+		} else {
+			packet.Status = state.SendingToFrontend
+			packet.TargetX = monitorX
+			packet.TargetY = monitorY
+		}
+
+	case state.SendingToFrontend:
+		if packet.X == packet.TargetX && packet.Y == packet.TargetY {
+			packet.Status = state.Done
+			packet.Active = false
+
+			// Actualizar el dashboard con los datos
+			g.updateDashboard(packet)
+		}
+	}
+}
+
+func (g *Game) updateDashboard(packet *state.PacketState) {
+	switch data := packet.Payload.(type) {
+	case simulation.TFLunaData:
+		g.State.DisplayDistancia = data.DistanciaM
+	case simulation.MPUData:
+		g.State.DisplayRoll = data.Roll
+	case simulation.IMXData:
+		g.State.DisplayNitidez = data.Nitidez
+	}
+}
+
+// ============ DRAW METHODS ============
 
 func (g *Game) Draw(screen *ebiten.Image) {
-	screen.Fill(color.RGBA{R: 0x1a, G: 0x1a, B: 0x1a, A: 255}) // Fondo oscuro
+	screen.Fill(color.RGBA{R: 0x1a, G: 0x1a, B: 0x1a, A: 255})
 
-	// --- 1. Dibuja el Trípode (¡CORREGIDO!) ---
+	// Dibujar elementos en orden de profundidad
+	g.drawTripode(screen)
+	g.drawTiltMeter(screen)
+	g.drawIcons(screen)
+	g.drawPackets(screen)
+	g.drawButton(screen)
+	g.drawDashboard(screen)
+
+	// Instrucciones mejoradas
+	ebitenutil.DebugPrintAt(screen, "Controles:  Flechas <- -> para inclinar ANTES de crear  |  Click en CREAR  |  F11 pantalla completa", 10, 10)
+}
+
+func (g *Game) drawTripode(screen *ebiten.Image) {
 	opTripode := &ebiten.DrawImageOptions{}
 	opTripode.GeoM.Translate(tripodeX, tripodeY)
 
-	// Lógica para elegir el frame basado en la inclinación
-	// (Asume 5 frames de 128x128. ¡Ajusta 'frameWidth' y 'frameHeight'!)
-	frameWidth := 128 
-	frameHeight := 128 // Asume 128 de alto
-	
-	frameIndex := 0 // El frame del "centro" (frame 0)
+	// El sprite geova_tilt_anim.png tiene 7 frames horizontales (128x128 cada uno)
+	// Total: 896x128 (7 frames de 128x128)
+	frameWidth := 128
+	frameHeight := 128
+	frameIndex := 3 // Por defecto, nivelado (centro - frame 3 de 7)
 
-	if g.State.CurrentTilt < -10.0 {
-		frameIndex = 3 // Izquierda Extremo (frame 3)
-	} else if g.State.CurrentTilt < -2.0 {
-		frameIndex = 1 // Izquierda Leve (frame 1)
-	} else if g.State.CurrentTilt > 10.0 {
-		frameIndex = 4 // Derecha Extremo (frame 4)
-	} else if g.State.CurrentTilt > 2.0 {
-		frameIndex = 2 // Derecha Leve (frame 2)
+	// Seleccionar frame según inclinación (7 frames: 0 a 6)
+	// Frame 0: Máxima inclinación izquierda (-15°)
+	// Frame 1: Inclinación izquierda media-alta (-10°)
+	// Frame 2: Inclinación izquierda media-baja (-5°)
+	// Frame 3: Nivelado (0°)
+	// Frame 4: Inclinación derecha media-baja (+5°)
+	// Frame 5: Inclinación derecha media-alta (+10°)
+	// Frame 6: Máxima inclinación derecha (+15°)
+	tilt := g.State.CurrentTilt
+	if tilt <= -12.5 {
+		frameIndex = 0
+	} else if tilt <= -7.5 {
+		frameIndex = 1
+	} else if tilt <= -2.5 {
+		frameIndex = 2
+	} else if tilt < 2.5 {
+		frameIndex = 3
+	} else if tilt < 7.5 {
+		frameIndex = 4
+	} else if tilt < 12.5 {
+		frameIndex = 5
+	} else {
+		frameIndex = 6
 	}
-	
-	// Calcula el 'rectángulo' del frame a dibujar
+
+	// Calcular región del sprite (frames horizontales)
 	sx := frameIndex * frameWidth
-	sy := 0
-	rect := image.Rect(sx, sy, sx+frameWidth, sy+frameHeight)
-	
-	// Dibuja SÓLO ese frame
-	// (Comprueba si tu asset se llama GeovaTripod o geova_tilt_anim)
-	screen.DrawImage(g.Assets.GeovaTripod.SubImage(rect).(*ebiten.Image), opTripode)
+	rect := image.Rect(sx, 0, sx+frameWidth, frameHeight)
 
-	// 2. Dibuja el Medidor de Inclinación (Opción B)
-	opTiltBG := &ebiten.DrawImageOptions{}
-	opTiltBG.GeoM.Translate(tiltMeterX, tiltMeterY)
-	screen.DrawImage(g.Assets.UITiltMeter, opTiltBG)
-	// (Aquí iría la lógica para rotar una "aguja" del medidor
-	// basada en g.State.CurrentTilt, si tu diseñador la hizo)
+	// Dibujar el frame correcto de geova_tilt_anim.png
+	screen.DrawImage(g.Assets.UITiltMeter.SubImage(rect).(*ebiten.Image), opTripode)
+}
 
-	// 3. Dibuja el Botón "Crear"
+func (g *Game) drawTiltMeter(screen *ebiten.Image) {
+	// Mostrar inclinación actual en tiempo real
+	ebitenutil.DebugPrintAt(screen,
+		fmt.Sprintf("Inclinación Actual: %.1f°", g.State.CurrentTilt),
+		int(tiltMeterX), int(tiltMeterY))
+
+	// Indicador visual de barra
+	meterX := int(tiltMeterX) + 200
+	meterY := int(tiltMeterY)
+
+	// Dibujar línea base
+	for i := -15; i <= 15; i++ {
+		x := meterX + i*3
+		ebitenutil.DebugPrintAt(screen, "|", x, meterY)
+	}
+
+	// Dibujar marcador de posición actual
+	markerX := meterX + int(g.State.CurrentTilt*3)
+	ebitenutil.DebugPrintAt(screen, "▼", markerX-2, meterY-15)
+}
+
+func (g *Game) drawButton(screen *ebiten.Image) {
 	opBoton := &ebiten.DrawImageOptions{}
 	opBoton.GeoM.Translate(float64(g.BotonRect.Min.X), float64(g.BotonRect.Min.Y))
-	if g.isBotonPressed {
+
+	if g.State.SimulacionIniciada {
+		// Mostrar botón deshabilitado con opacidad reducida
+		opBoton.ColorScale.Scale(0.5, 0.5, 0.5, 1.0) // RGB atenuado, Alpha normal
+		screen.DrawImage(g.Assets.ButtonCreateUp, opBoton)
+	} else if g.isBotonPressed {
 		screen.DrawImage(g.Assets.ButtonCreateDown, opBoton)
 	} else {
 		screen.DrawImage(g.Assets.ButtonCreateUp, opBoton)
 	}
+}
 
-	// 4. Dibuja los 4 Iconos del Flujo
-	g.drawIcon(screen, g.Assets.IconPythonIdle, g.Assets.IconPythonActiveAnim, g.State.PythonAPITimer, iconPythonX, iconPythonY)
-	g.drawIcon(screen, g.Assets.IconRabbitIdle, g.Assets.IconRabbitActiveAnim, g.State.RabbitMQTimer, iconRabbitX, iconRabbitY)
-	g.drawIcon(screen, g.Assets.IconWebsocketIdle, g.Assets.IconWebsocketActiveAnim, g.State.WebsocketAPITimer, iconWebsocketX, iconWebsocketY)
+func (g *Game) drawIcons(screen *ebiten.Image) {
+	g.drawIcon(screen, g.Assets.IconPythonIdle, g.Assets.IconPythonActiveAnim,
+		g.State.PythonAPITimer, iconPythonX, iconPythonY)
+	g.drawIcon(screen, g.Assets.IconRabbitIdle, g.Assets.IconRabbitActiveAnim,
+		g.State.RabbitMQTimer, iconRabbitX, iconRabbitY)
+	g.drawIcon(screen, g.Assets.IconWebsocketIdle, g.Assets.IconWebsocketActiveAnim,
+		g.State.WebsocketAPITimer, iconWebsocketX, iconWebsocketY)
+
 	opMonitor := &ebiten.DrawImageOptions{}
 	opMonitor.GeoM.Translate(monitorX, monitorY)
 	screen.DrawImage(g.Assets.IconMonitor, opMonitor)
-	
-	// 5. Dibuja los Paquetes de Datos
-	g.drawPackets(screen)
-	
-	// 6. Dibuja el Dashboard
-	g.drawDashboard(screen)
 }
 
-// drawIcon es un helper para dibujar un icono (animado o estático)
-func (g *Game) drawIcon(screen *ebiten.Image, idle *ebiten.Image, anim *ebiten.Image, timer int, x, y float64) {
+func (g *Game) drawIcon(screen *ebiten.Image, idle *ebiten.Image, anim *ebiten.Image,
+	timer int, x, y float64) {
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(x, y)
-	
+
 	if timer > 0 {
-		// Dibuja la animación
-		// (Asume 6 frames de 64x64, ajusta '64' y '6' si es diferente)
 		frameWidth := 64
 		frameCount := 6
 		frameIndex := (g.animIconCounter / 6) % frameCount
-		
 		sx := frameIndex * frameWidth
-		sy := 0
-		rect := image.Rect(sx, sy, sx+frameWidth, sy+64) // Asume 64 de alto
+		rect := image.Rect(sx, 0, sx+frameWidth, 64)
 		screen.DrawImage(anim.SubImage(rect).(*ebiten.Image), op)
 	} else {
-		// Dibuja el estático
 		screen.DrawImage(idle, op)
 	}
 }
 
-// drawPackets dibuja todos los paquetes de datos activos
 func (g *Game) drawPackets(screen *ebiten.Image) {
 	g.State.Mutex.Lock()
 	defer g.State.Mutex.Unlock()
 
-	// (Asume 6 frames de 32x32, ajusta '32' y '6' si es diferente)
 	frameWidth := 32
 	frameCount := 6
 	frameIndex := (g.animPacketCounter / 6) % frameCount
 	sx := frameIndex * frameWidth
-	sy := 0
-	rect := image.Rect(sx, sy, sx+frameWidth, sy+32) // Asume 32 de alto
+	rect := image.Rect(sx, 0, sx+frameWidth, 32)
 	packetFrame := g.Assets.DataPacketAnim.SubImage(rect).(*ebiten.Image)
 
 	for _, packet := range g.State.Packets {
-		if !packet.Active { continue }
-		
+		if !packet.Active {
+			continue
+		}
+
 		op := &ebiten.DrawImageOptions{}
 		op.GeoM.Translate(packet.X, packet.Y)
-		
-		// Tinta el paquete de su color
-		op.ColorScale.SetR(float32(packet.Color.(color.RGBA).R) / 255)
-		op.ColorScale.SetG(float32(packet.Color.(color.RGBA).G) / 255)
-		op.ColorScale.SetB(float32(packet.Color.(color.RGBA).B) / 255)
-		
+
+		// Aplicar color
+		c := packet.Color.(color.RGBA)
+		op.ColorScale.SetR(float32(c.R) / 255)
+		op.ColorScale.SetG(float32(c.G) / 255)
+		op.ColorScale.SetB(float32(c.B) / 255)
+
 		screen.DrawImage(packetFrame, op)
 
+		// Etiqueta identificadora encima del paquete
+		labelX := int(packet.X) - 15
+		labelY := int(packet.Y) - 10
+
+		var label string
+		switch packet.ID {
+		case "tfluna":
+			label = "TFL"
+		case "mpu":
+			label = "MPU"
+		case "imx":
+			label = "IMX"
+		}
+
+		ebitenutil.DebugPrintAt(screen, label, labelX, labelY)
+
+		// Mostrar X si hay error
 		if packet.Status == state.Error {
-			ebitenutil.DebugPrintAt(screen, "X", int(packet.X)+10, int(packet.Y)-10)
+			ebitenutil.DebugPrintAt(screen, "✗ ERROR", int(packet.X)-10, int(packet.Y)+25)
 		}
 	}
 }
 
-// drawDashboard dibuja los medidores y barras de progreso
 func (g *Game) drawDashboard(screen *ebiten.Image) {
-	// Dibuja un título
-	ebitenutil.DebugPrintAt(screen, "--- Dashboard de Resultados ---", int(dashboardX), int(dashboardY))
+	y := int(dashboardY)
 
-	// 1. Dibuja el Medidor de Distancia (TF-Luna)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Distancia: %.2f m", g.State.DisplayDistancia), int(dashboardX), int(dashboardY)+20)
-	// (Aquí iría el código para dibujar el UIGaugeBG y rotar el UIGaugeNeedle)
+	ebitenutil.DebugPrintAt(screen, "--- Dashboard de Resultados ---", int(dashboardX), y)
+	y += 20
 
-	// 2. Dibuja la Barra de Nitidez (IMX477)
-	ebitenutil.DebugPrintAt(screen, "Nitidez:", int(dashboardX), int(dashboardY)+40)
-	opBarBG := &ebiten.DrawImageOptions{}
-	opBarBG.GeoM.Translate(dashboardX+60, dashboardY+40)
-	screen.DrawImage(g.Assets.UIProgressBG, opBarBG)
+	// Distancia (TF-Luna) - Rojo
+	distText := fmt.Sprintf("  Distancia (TFLuna): %.2f m", g.State.DisplayDistancia)
+	if g.State.DisplayDistancia == 0 {
+		distText = "  Distancia (TFLuna): --"
+	}
+	ebitenutil.DebugPrintAt(screen, distText, int(dashboardX), y)
+	y += 25
 
-	opBarFill := &ebiten.DrawImageOptions{}
-	// Escala la barra de relleno (g.State.DisplayNitidez es 4.0-6.0, lo normalizamos a 0.0-1.0)
-	normalizedNitidez := (g.State.DisplayNitidez - 4.0) / 2.0
-	if normalizedNitidez < 0 { normalizedNitidez = 0 }
-	if normalizedNitidez > 1 { normalizedNitidez = 1 }
-	
-	opBarFill.GeoM.Scale(normalizedNitidez, 1.0) // ¡Escala en X!
-	opBarFill.GeoM.Translate(dashboardX+60, dashboardY+40)
-	screen.DrawImage(g.Assets.UIProgressFill, opBarFill)
-	
-	// 3. Dibuja el Medidor de Inclinación (MPU)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Inclinacion (Roll): %.1f°", g.State.DisplayRoll), int(dashboardX), int(dashboardY)+60)
+	// Nitidez (IMX477) - Verde con barra
+	nitText := "  Nitidez (IMX477):"
+	if g.State.DisplayNitidez == 0 {
+		nitText = "  Nitidez (IMX477): --"
+	}
+	ebitenutil.DebugPrintAt(screen, nitText, int(dashboardX), y)
+
+	if g.State.DisplayNitidez > 0 {
+		opBarBG := &ebiten.DrawImageOptions{}
+		opBarBG.GeoM.Translate(dashboardX+180, float64(y))
+		screen.DrawImage(g.Assets.UIProgressBG, opBarBG)
+
+		// Normalizar nitidez de 4.0-6.0 a 0.0-1.0
+		normalizedNitidez := (g.State.DisplayNitidez - 4.0) / 2.0
+		if normalizedNitidez < 0 {
+			normalizedNitidez = 0
+		}
+		if normalizedNitidez > 1 {
+			normalizedNitidez = 1
+		}
+
+		opBarFill := &ebiten.DrawImageOptions{}
+		opBarFill.GeoM.Scale(normalizedNitidez, 1.0)
+		opBarFill.GeoM.Translate(dashboardX+180, float64(y))
+		screen.DrawImage(g.Assets.UIProgressFill, opBarFill)
+
+		// Mostrar valor numérico
+		ebitenutil.DebugPrintAt(screen,
+			fmt.Sprintf("%.2f", g.State.DisplayNitidez),
+			int(dashboardX)+330, y)
+	}
+
+	y += 25
+
+	// Inclinación (MPU) - Azul
+	rollText := fmt.Sprintf("  Inclinacion Roll (MPU): %.1f°", g.State.DisplayRoll)
+	if g.State.DisplayRoll == 0 {
+		rollText = "  Inclinacion Roll (MPU): --"
+	}
+	ebitenutil.DebugPrintAt(screen, rollText, int(dashboardX), y)
+
+	y += 30
+
+	// Estado de la simulación
+	if g.State.SimulacionIniciada {
+		ebitenutil.DebugPrintAt(screen, ">> Procesando solicitudes...", int(dashboardX), y)
+	} else {
+		ebitenutil.DebugPrintAt(screen, ">> Listo para nueva simulacion", int(dashboardX), y)
+	}
 }
 
-
-// --- Layout (Define el tamaño de la ventana) ---
-
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	return 800, 600
+	return 900, 650
 }

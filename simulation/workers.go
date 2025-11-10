@@ -3,6 +3,7 @@ package simulation
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"geova-simulation/state"
 	"image/color"
 	"math/rand"
@@ -13,7 +14,6 @@ import (
 // --- Generadores de Datos Aleatorios ---
 
 func GenerateRandomIMXData() IMXData {
-	// ... (código igual)
 	return IMXData{
 		IDProject:      1,
 		Resolution:     "640x480",
@@ -21,14 +21,13 @@ func GenerateRandomIMXData() IMXData {
 		Nitidez:        4.0 + rand.Float64()*2.0,
 		LaserDetectado: rand.Intn(2) == 1,
 		CalidadFrame:   20.0,
-		Confiabilidad:  0.0,
+		Confiabilidad:  0.8 + rand.Float64()*0.2,
 		Event:          true,
-        Timestamp:      time.Now().Format("2006-01-02 15:04:05"),	
+		Timestamp:      time.Now().Format("2006-01-02 15:04:05"),
 	}
 }
 
-// ¡FUNCIÓN CORREGIDA!
-func GenerateRandomMPUData(tilt float64) MPUData { // <-- 1. Acepta 'tilt'
+func GenerateRandomMPUData(tilt float64) MPUData {
 	return MPUData{
 		IDProject: 1,
 		Ax:        0.1 + rand.Float64()*0.1,
@@ -37,7 +36,7 @@ func GenerateRandomMPUData(tilt float64) MPUData { // <-- 1. Acepta 'tilt'
 		Gx:        0.01 + rand.Float64()*0.02,
 		Gy:        0.02 + rand.Float64()*0.02,
 		Gz:        0.03 + rand.Float64()*0.02,
-		Roll:      tilt, // <-- 2. Usa el 'tilt' del juego
+		Roll:      tilt, // Usa la inclinación actual del trípode
 		Pitch:     0.5 + rand.Float64()*1.0,
 		Apertura:  tilt * 1.5,
 		Event:     true,
@@ -45,10 +44,8 @@ func GenerateRandomMPUData(tilt float64) MPUData { // <-- 1. Acepta 'tilt'
 	}
 }
 
-// (GenerateRandomTFLunaData se queda igual)
 func GenerateRandomTFLunaData() TFLunaData {
-	// ... (código igual)
-	distCm := 200 + rand.Intn(100)
+	distCm := 150 + rand.Intn(150) // 150-300 cm
 	return TFLunaData{
 		IDProject:   1,
 		DistanciaCm: distCm,
@@ -60,47 +57,63 @@ func GenerateRandomTFLunaData() TFLunaData {
 	}
 }
 
+// --- Worker Concurrente (Mejorado) ---
 
-// --- El Worker Concurrente ---
-// (Asegúrate de que la importación esté corregida aquí también)
-func SendPOSTRequest(url string, payload interface{}, packetID string, visState *state.VisualState, startY float64, c color.Color) {
+func SendPOSTRequest(url string, payload interface{}, packetID string, 
+	visState *state.VisualState, startY float64, c color.Color) {
 	
-	// 1. Crear el paquete y actualizar el estado a "enviando"
+	// 1. Crear el paquete visual en posición inicial (trípode)
 	visState.Mutex.Lock()
 	packet := &state.PacketState{
 		ID:       packetID,
 		Active:   true,
-		X:        150.0, 
+		X:        80.0,  // Posición del trípode
 		Y:        startY,
-		TargetX:  300.0, 
+		TargetX:  250.0, // Python API
 		TargetY:  200.0,
 		Color:    c,
 		Status:   state.SendingToAPI,
 		Payload:  payload,
+		ProcessingTimer: 0,
 	}
 	visState.Packets[packetID] = packet
 	visState.Mutex.Unlock()
 
-	// ... (El resto de la función: Marshal, Sleep, http.Post, etc... se queda igual) ...
+	// 2. Preparar JSON
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
+		fmt.Printf("[%s] Error al serializar JSON: %v\n", packetID, err)
 		visState.Mutex.Lock()
 		visState.Packets[packetID].Status = state.Error
 		visState.Mutex.Unlock()
 		return
 	}
 
+	// 3. Simular latencia de red (500-1000ms)
 	time.Sleep(time.Duration(500+rand.Intn(500)) * time.Millisecond)
 
+	// 4. Hacer la petición HTTP POST
+	fmt.Printf("[%s] Enviando POST a %s\n", packetID, url)
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
 
+	// 5. Actualizar el estado según el resultado
 	visState.Mutex.Lock()
+	defer visState.Mutex.Unlock()
+
 	if err != nil {
+		fmt.Printf("[%s] Error en HTTP: %v\n", packetID, err)
 		visState.Packets[packetID].Status = state.Error
-	} else if resp.StatusCode >= 400 {
-		visState.Packets[packetID].Status = state.Error
-	} else {
-		visState.Packets[packetID].Status = state.ArrivedAtAPI
+		return
 	}
-	visState.Mutex.Unlock()
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		fmt.Printf("[%s] Error HTTP %d\n", packetID, resp.StatusCode)
+		visState.Packets[packetID].Status = state.Error
+		return
+	}
+
+	// ¡Éxito! Cambiar a "Arrived"
+	fmt.Printf("[%s] ✓ Petición exitosa (HTTP %d)\n", packetID, resp.StatusCode)
+	visState.Packets[packetID].Status = state.ArrivedAtAPI
 }
