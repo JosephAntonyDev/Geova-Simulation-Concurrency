@@ -11,8 +11,6 @@ import (
 	"time"
 )
 
-// --- Generadores de Datos Aleatorios ---
-
 func GenerateRandomIMXData() IMXData {
 	return IMXData{
 		IDProject:      4,
@@ -36,7 +34,7 @@ func GenerateRandomMPUData(tilt float64) MPUData {
 		Gx:        0.01 + rand.Float64()*0.02,
 		Gy:        0.02 + rand.Float64()*0.02,
 		Gz:        0.03 + rand.Float64()*0.02,
-		Roll:      tilt, // Usa la inclinación actual del trípode
+		Roll:      tilt,
 		Pitch:     0.5 + rand.Float64()*1.0,
 		Apertura:  tilt * 1.5,
 		Event:     true,
@@ -45,7 +43,7 @@ func GenerateRandomMPUData(tilt float64) MPUData {
 }
 
 func GenerateRandomTFLunaData() TFLunaData {
-	distCm := 150 + rand.Intn(150) // 150-300 cm
+	distCm := 150 + rand.Intn(150)
 	return TFLunaData{
 		IDProject:   4,
 		DistanciaCm: distCm,
@@ -57,29 +55,25 @@ func GenerateRandomTFLunaData() TFLunaData {
 	}
 }
 
-// --- Worker Concurrente (Mejorado) ---
-
-func SendPOSTRequest(url string, payload interface{}, packetID string, 
+func SendPOSTRequest(url string, payload interface{}, packetID string,
 	visState *state.VisualState, startY float64, c color.Color) {
-	
-	// 1. Crear el paquete visual en posición inicial (trípode)
+
 	visState.Mutex.Lock()
 	packet := &state.PacketState{
-		ID:       packetID,
-		Active:   true,
-		X:        80.0,  // Posición del trípode
-		Y:        startY,
-		TargetX:  250.0, // Python API
-		TargetY:  200.0,
-		Color:    c,
-		Status:   state.SendingToAPI,
-		Payload:  payload,
+		ID:              packetID,
+		Active:          true,
+		X:               80.0,
+		Y:               startY,
+		TargetX:         250.0,
+		TargetY:         200.0,
+		Color:           c,
+		Status:          state.SendingToAPI,
+		Payload:         payload,
 		ProcessingTimer: 0,
 	}
 	visState.Packets[packetID] = packet
 	visState.Mutex.Unlock()
 
-	// 2. Preparar JSON
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		fmt.Printf("[%s] Error al serializar JSON: %v\n", packetID, err)
@@ -89,14 +83,11 @@ func SendPOSTRequest(url string, payload interface{}, packetID string,
 		return
 	}
 
-	// 3. Simular latencia de red (500-1000ms)
 	time.Sleep(time.Duration(500+rand.Intn(500)) * time.Millisecond)
 
-	// 4. Hacer la petición HTTP POST
 	fmt.Printf("[%s] Enviando POST a %s\n", packetID, url)
 	resp, err := http.Post(url, "application/json", bytes.NewBuffer(jsonData))
 
-	// 5. Actualizar el estado según el resultado
 	visState.Mutex.Lock()
 	defer visState.Mutex.Unlock()
 
@@ -113,7 +104,6 @@ func SendPOSTRequest(url string, payload interface{}, packetID string,
 		return
 	}
 
-	// ¡Éxito! Cambiar a "Arrived"
 	fmt.Printf("[%s] ✓ Petición exitosa (HTTP %d)\n", packetID, resp.StatusCode)
 	visState.Packets[packetID].Status = state.ArrivedAtAPI
 }

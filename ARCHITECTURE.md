@@ -7,8 +7,12 @@ Geova-Simulation-Concurrency/
 ├── main.go              # Punto de entrada de la aplicación
 ├── assets/              # Gestión de recursos gráficos
 │   └── assets.go        # Carga de sprites e imágenes
-├── game/                # Lógica de juego y renderizado
-│   └── game.go          # Motor de juego principal
+├── game/                # Lógica de juego y renderizado (modular)
+│   ├── game.go          # Estructura principal y game loop
+│   ├── config.go        # Constantes de posición y configuración
+│   ├── input.go         # Manejo de entrada y lanzamiento de simulaciones
+│   ├── fsm.go           # Máquina de estados de paquetes (FSM)
+│   └── render.go        # Métodos de renderizado
 ├── simulation/          # Lógica de simulación y workers
 │   ├── datatypes.go     # Estructuras de datos de sensores
 │   └── workers.go       # Goroutines para peticiones HTTP
@@ -20,7 +24,7 @@ Geova-Simulation-Concurrency/
     └── ...              # Otros sprites
 ```
 
-## 🏗️ Componentes Principales
+## Componentes Principales
 
 ### 1. **Main (`main.go`)**
 - Inicializa el generador de números aleatorios
@@ -43,42 +47,65 @@ Geova-Simulation-Concurrency/
 - **Frontend**: Monitor, gauges, barras de progreso
 - **UI**: Botones y paquetes de datos animados
 
-### 3. **Game (`game/game.go`)**
-- **Responsabilidad**: Renderizado y lógica de juego
+### 3. **Game (`game/`)**
+
+#### **3.1. `game.go` - Estructura Principal**
+- **Responsabilidad**: Define la estructura del juego y el game loop
 - **Estructura**:
   ```go
   type Game struct {
-      Assets *assets.Assets      // Referencias a sprites
-      State  *state.VisualState  // Estado compartido thread-safe
-      BotonRect image.Rectangle   // Área del botón CREAR
-      isBotonPressed bool         // Estado del botón
-      animPacketCounter int       // Contador de animación
-      animIconCounter int         // Contador de animación
+      Assets *assets.Assets
+      State  *state.VisualState
+      BotonRect image.Rectangle
+      isBotonPressed bool
+      animPacketCounter int
+      animIconCounter int
   }
   ```
+- **Métodos principales**:
+  - `NewGame()`: Constructor del juego
+  - `Update()`: Game loop (60 FPS)
+  - `Draw()`: Renderizado principal
+  - `Layout()`: Configuración de la ventana
 
-#### Métodos Principales:
-- **`Update()`**: Actualiza estado por frame (60 FPS)
-  - Maneja input del usuario
-  - Actualiza FSM de paquetes
-  - Incrementa contadores de animación
+#### **3.2. `config.go` - Constantes**
+- **Responsabilidad**: Centraliza todas las constantes de posición y configuración
+- **Constantes incluidas**:
+  - Posiciones de hardware (trípode, inclinómetro)
+  - Posiciones de iconos de backend
+  - Posiciones de frontend (monitor, dashboard)
+  - Dimensiones de sprites
+  - Velocidades de animación
 
-- **`Draw()`**: Renderiza la escena
-  - Dibuja fondo (si existe)
-  - Dibuja elementos en orden de profundidad
-  - Muestra instrucciones
+#### **3.3. `input.go` - Manejo de Entrada**
+- **Responsabilidad**: Procesa input del usuario y lanza simulaciones
+- **Funciones principales**:
+  - `handleInput()`: Detecta teclas de flecha y clicks
+  - `startSimulation()`: Lanza 3 goroutines concurrentes (TFLuna, MPU, IMX477)
+- **Controles**:
+  - Flechas ← →: Inclinar trípode (-15° a +15°)
+  - Click en botón CREAR: Iniciar simulación
 
-#### Métodos de Renderizado:
-- `drawBackground()`: Dibuja fondo escalado o color sólido
-- `drawTripode()`: Dibuja trípode animado según inclinación
-- `drawTiltMeter()`: Muestra medidor de inclinación superior
-- `drawIcons()`: Dibuja iconos de backend (activos/inactivos)
-- `drawPackets()`: Renderiza paquetes en movimiento
-- `drawButton()`: Dibuja botón CREAR
-- `drawDashboard()`: Muestra resultados de sensores
+#### **3.4. `fsm.go` - Máquina de Estados**
+- **Responsabilidad**: Lógica de la FSM (Finite State Machine) para paquetes
+- **Funciones principales**:
+  - `updatePacketFSM()`: Actualiza el ciclo de vida de cada paquete
+  - `handlePacketArrival()`: Procesa llegadas a destinos
+  - `updateDashboard()`: Actualiza valores mostrados en pantalla
+- **Estados del paquete**: SendingToAPI → ArrivedAtAPI → ProcessingAtAPI → SendingToRabbit → ProcessingAtRabbit → SendingToWebsocket → ProcessingAtWebsocket → SendingToFrontend → Done
 
-#### Helpers:
-- `getTripodeFrame()`: Calcula frame según inclinación (-15° a +15°)
+#### **3.5. `render.go` - Renderizado**
+- **Responsabilidad**: Todos los métodos de dibujo
+- **Métodos de renderizado**:
+  - `drawBackground()`: Dibuja fondo escalado o color sólido
+  - `drawTripode()`: Dibuja trípode animado según inclinación
+  - `drawTiltMeter()`: Muestra medidor de inclinación superior
+  - `drawIcons()`: Dibuja iconos de backend (activos/inactivos)
+  - `drawPackets()`: Renderiza paquetes en movimiento con interpolación
+  - `drawButton()`: Dibuja botón CREAR con efecto hover
+  - `drawDashboard()`: Muestra resultados de sensores
+- **Helper**:
+  - `getTripodeFrame()`: Calcula frame de animación según inclinación
 
 ### 4. **Simulation (`simulation/`)**
 - **`datatypes.go`**: Define estructuras de datos de sensores
@@ -119,7 +146,7 @@ SendingToWebsocket → ProcessingAtWebsocket →
 SendingToFrontend → Done
 ```
 
-## 🎨 Sistema de Animación
+## Sistema de Animación
 
 ### Trípode Geova
 - **Sprite**: `geova_tilt_anim.png` (896×128 px)
@@ -146,7 +173,7 @@ SendingToFrontend → Done
 - **Activos**: 6 frames de animación (384×64)
 - **Trigger**: Timer > 0 cuando procesan datos
 
-## 🔧 Configuración
+## Configuración
 
 ### Constantes Principales (`game/game.go`)
 ```go
@@ -177,13 +204,13 @@ const (
 )
 ```
 
-## 🎮 Controles
+## Controles
 
 - **← →**: Inclinar trípode antes de crear simulación (-15° a +15°)
 - **Click en CREAR**: Iniciar nueva simulación
 - **F11**: Alternar pantalla completa
 
-## 🔄 Flujo de Ejecución
+## Flujo de Ejecución
 
 1. **Inicialización**:
    - Cargar assets
@@ -206,14 +233,14 @@ const (
    - Estado compartido protegido con mutex
    - FSM de paquetes actualizada thread-safe
 
-## 📝 Agregar un Fondo
+## Agregar un Fondo
 
 1. Coloca tu imagen en `images/background.png`
 2. El fondo se cargará automáticamente (opcional)
 3. Se escalará para llenar la ventana (900×650)
 4. Si no existe, usa fondo gris oscuro por defecto
 
-## 🚀 Mejoras Futuras
+## Mejoras Futuras
 
 - [ ] Agregar más sensores
 - [ ] Dashboard interactivo

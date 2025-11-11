@@ -1,6 +1,5 @@
 package simulation
 
-// JSON para IMX477 (http://localhost:8000/imx477/sensor)
 type IMXData struct {
 	IDProject      int     `json:"id_project"`
 	Resolution     string  `json:"resolution"`
@@ -13,7 +12,6 @@ type IMXData struct {
 	Timestamp      string  `json:"timestamp"`
 }
 
-// JSON para MPU (http://localhost:8000/mpu/sensor)
 type MPUData struct {
 	IDProject int     `json:"id_project"`
 	Ax        float64 `json:"ax"`
@@ -29,7 +27,6 @@ type MPUData struct {
 	Timestamp string  `json:"timestamp"`
 }
 
-// JSON para TFLuna (http://localhost:8000/tfluna/sensor)
 type TFLunaData struct {
 	IDProject   int     `json:"id_project"`
 	DistanciaCm int     `json:"distancia_cm"`
