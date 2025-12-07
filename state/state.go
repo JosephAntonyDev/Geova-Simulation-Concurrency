@@ -45,4 +45,7 @@ type VisualState struct {
 	DisplayNitidez     float64
 	CurrentTilt        float64
 	SimulacionIniciada bool
+
+	StopChan chan struct{}
+	PacketID int
 }

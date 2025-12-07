@@ -1,464 +1,512 @@
-# Patrones de Concurrencia en Geova Simulation
+# Geova Simulation - Concurrencia y Visualización
 
-## Resumen Ejecutivo
+Simulación visual de un sistema de sensores IoT con concurrencia en Go, utilizando Ebitengine para renderizado en tiempo real.
 
-Este proyecto utiliza **3 goroutines concurrentes** por simulación para enviar datos de sensores a una API REST, con sincronización mediante **Mutex** y visualización en tiempo real.
+## Descripción
+
+Este proyecto simula el flujo de datos de 3 sensores (TFLuna, MPU6050, IMX477) enviando peticiones HTTP concurrentes a una API REST, con visualización en tiempo real del pipeline de procesamiento.
 
 ---
 
-## Goroutines Utilizadas
+## Estructura del Proyecto
 
-### **Total por Simulación: 3 Goroutines**
-
-Cada vez que el usuario presiona el botón "CREAR", se lanzan 3 goroutines simultáneas:
-
-| # | Nombre | Sensor | Color | Propósito |
-|---|--------|--------|-------|-----------|
-| 1 | `tfluna` | TF-Luna (Distancia) | Rojo | Envía datos de distancia láser |
-| 2 | `mpu` | MPU6050 (Inclinación) | Azul | Envía datos de inclinación/orientación |
-| 3 | `imx` | IMX477 (Cámara) | Verde | Envía datos de nitidez de imagen |
-
-**Ubicación del código**: `game/game.go` - Función `startSimulation()` (líneas ~130-145)
-
-```go
-func (g *Game) startSimulation() {
-    g.State.Mutex.Lock()
-    // ... resetear estado ...
-    tilt := g.State.CurrentTilt
-    g.State.Mutex.Unlock()
-
-    // Lanzar las 3 goroutines con colores distintivos
-    go simulation.SendPOSTRequest(
-        "http://localhost:8000/tfluna/sensor",
-        simulation.GenerateRandomTFLunaData(),
-        "tfluna", g.State, 180.0, color.RGBA{R: 255, G: 50, B: 50, A: 255},
-    )
-    go simulation.SendPOSTRequest(
-        "http://localhost:8000/mpu/sensor",
-        simulation.GenerateRandomMPUData(tilt),
-        "mpu", g.State, 200.0, color.RGBA{R: 50, G: 150, B: 255, A: 255},
-    )
-    go simulation.SendPOSTRequest(
-        "http://localhost:8000/imx477/sensor",
-        simulation.GenerateRandomIMXData(),
-        "imx", g.State, 220.0, color.RGBA{R: 50, G: 255, B: 50, A: 255},
-    )
-}
+```
+Geova-Simulation-Concurrency/
+├── main.go              # Punto de entrada de la aplicación
+├── assets/              # Gestión de recursos gráficos
+│   └── assets.go        # Carga de sprites e imágenes
+├── game/                # Lógica de juego y renderizado (modular)
+│   ├── game.go          # Estructura principal y game loop
+│   ├── config.go        # Constantes de posición y configuración
+│   ├── input.go         # Manejo de entrada y lanzamiento de simulaciones
+│   ├── fsm.go           # Máquina de estados de paquetes (FSM)
+│   └── render.go        # Métodos de renderizado
+├── simulation/          # Lógica de simulación y workers
+│   ├── datatypes.go     # Estructuras de datos de sensores
+│   └── workers.go       # Goroutines para peticiones HTTP
+├── state/               # Estado compartido y sincronización
+│   └── state.go         # Estado visual y de paquetes
+└── images/              # Assets gráficos
+    ├── background.png   # Fondo de la simulación (opcional)
+    ├── geova_tilt_anim.png  # Animación del trípode (7 frames)
+    └── ...              # Otros sprites
 ```
 
 ---
 
-## Patrones de Concurrencia Implementados
+## Controles
 
-### **1. Patrón Worker Pool (Fan-Out)**
-**Ubicación**: `game/game.go` - `startSimulation()`
-
-**Descripción**: Se lanzan múltiples goroutines (workers) simultáneamente para realizar trabajo en paralelo.
-
-**Características**:
-- ✅ 3 workers independientes
-- ✅ Cada worker maneja un sensor diferente
-- ✅ Ejecutan en paralelo sin bloquearse entre sí
-- ✅ No hay dependencias entre workers
-
-**Ventajas**:
-- Mejora el rendimiento (3 requests simultáneos vs secuenciales)
-- Simula hardware real (sensores enviando datos concurrentemente)
-- Reduce el tiempo total de ejecución
+| Control | Acción |
+|---------|--------|
+| ← → | Inclinar trípode (-15° a +15°) |
+| Click en CREAR | Iniciar simulación continua |
+| Click en DETENER | Detener simulación |
+| F11 | Pantalla completa |
 
 ---
 
-### **2. Patrón Shared State con Mutex**
-**Ubicación**: `state/state.go` y `simulation/workers.go`
+## Instalación y Ejecución
 
-**Descripción**: Estado compartido protegido con `sync.Mutex` para evitar race conditions.
+```bash
+# Clonar repositorio
+git clone https://github.com/JosephAntony37900/Geova-Simulation-Concurrency.git
+cd Geova-Simulation-Concurrency
 
-#### **Estructura del Estado Compartido**:
+# Ejecutar
+go run .
+
+# O compilar
+go build -o geova.exe
+./geova.exe
+```
+
+**Requisitos**:
+- Go 1.21+
+- API REST corriendo en `localhost:8000`
+
+---
+
+## Componentes Principales
+
+### 1. Main (`main.go`)
+- Inicializa el generador de números aleatorios
+- Carga todos los assets gráficos
+- Crea el estado compartido
+- Configura la ventana de Ebitengine (900×650)
+- Lanza el game loop
+
+### 2. Assets (`assets/assets.go`)
+- **Responsabilidad**: Gestión centralizada de recursos gráficos
+- **Funciones principales**:
+  - `LoadAssets()`: Carga todos los sprites al iniciar
+  - `loadSprite()`: Carga sprites requeridos
+  - `loadSpriteOptional()`: Carga sprites opcionales (background)
+
+### 3. Game (`game/`)
+
+#### `game.go` - Estructura Principal
+```go
+type Game struct {
+    Assets *assets.Assets
+    State  *state.VisualState
+    BotonRect image.Rectangle
+    isBotonPressed bool
+    animPacketCounter int
+    animIconCounter int
+}
+```
+
+#### `config.go` - Constantes
+Centraliza posiciones de hardware, iconos, frontend y dimensiones de sprites.
+
+#### `input.go` - Manejo de Entrada
+- `handleInput()`: Detecta teclas y clicks
+- `toggleSimulation()`: Inicia/detiene simulación continua
+- `runContinuousSimulation()`: Loop de peticiones cada 2 segundos
+- `sendBatchRequests()`: Lanza 3 goroutines por batch
+
+#### `fsm.go` - Máquina de Estados
+- `updatePacketFSM()`: Actualiza el ciclo de vida de paquetes
+- `handlePacketArrival()`: Procesa llegadas a destinos
+- `updateDashboard()`: Actualiza valores en pantalla
+
+#### `render.go` - Renderizado
+- `drawBackground()`: Fondo escalado o color sólido
+- `drawTripode()`: Trípode animado según inclinación
+- `drawTiltMeter()`: Medidor de inclinación
+- `drawIcons()`: Iconos de backend (activos/inactivos)
+- `drawPackets()`: Paquetes en movimiento
+- `drawButton()`: Botón CREAR/DETENER
+- `drawDashboard()`: Resultados de sensores
+
+### 4. Simulation (`simulation/`)
+
+#### `datatypes.go` - Estructuras de Datos
+```go
+type TFLunaData struct { /* Distancia láser */ }
+type MPUData struct { /* Inclinación Roll/Pitch */ }
+type IMXData struct { /* Nitidez de cámara */ }
+```
+
+#### `workers.go` - Goroutines HTTP
+- `SendPOSTRequest()`: Envía datos a la API
+- `GenerateRandom*Data()`: Genera datos aleatorios de sensores
+
+### 5. State (`state/state.go`)
 ```go
 type VisualState struct {
-    Mutex sync.Mutex                    // ← Mutex para proteger acceso
-    Packets map[string]*PacketState     // Estado de paquetes en tránsito
+    Mutex   sync.Mutex
+    Packets map[string]*PacketState
     
-    // Timers para animaciones
     PythonAPITimer    int
     RabbitMQTimer     int
     WebsocketAPITimer int
     
-    // Datos del dashboard
-    DisplayDistancia float64
-    DisplayRoll      float64
-    DisplayNitidez   float64
-    CurrentTilt      float64
+    DisplayDistancia   float64
+    DisplayRoll        float64
+    DisplayNitidez     float64
+    CurrentTilt        float64
     SimulacionIniciada bool
+    
+    StopChan   chan struct{}  // Canal para detener simulación
+    PacketID   int            // Contador de paquetes únicos
 }
 ```
 
-#### **Uso del Mutex**:
+---
 
-**1. En Worker Goroutines** (`simulation/workers.go`):
+## Patrones de Concurrencia
+
+### Resumen Ejecutivo
+
+Este proyecto utiliza **3 goroutines concurrentes** por batch de simulación, con sincronización mediante **Mutex** y visualización en tiempo real. La simulación es continua hasta que el usuario la detiene.
+
+### Goroutines por Batch: 3
+
+| # | Nombre | Sensor | Color | Endpoint |
+|---|--------|--------|-------|----------|
+| 1 | `tfluna_N` | TF-Luna | Rojo | `/tfluna/sensor` |
+| 2 | `mpu_N` | MPU6050 | Azul | `/mpu/sensor` |
+| 3 | `imx_N` | IMX477 | Verde | `/imx477/sensor` |
+
+### 1. Patrón Worker Pool (Fan-Out)
+
+**Ubicación**: `game/input.go` - `sendBatchRequests()`
+
 ```go
-func SendPOSTRequest(..., visState *state.VisualState, ...) {
-    // LOCK antes de escribir
-    visState.Mutex.Lock()
-    packet := &state.PacketState{...}
-    visState.Packets[packetID] = packet
-    visState.Mutex.Unlock()
-    
-    // ... hacer HTTP request ...
-    
-    // LOCK antes de actualizar estado
-    visState.Mutex.Lock()
-    defer visState.Mutex.Unlock()
-    
-    if err != nil {
-        visState.Packets[packetID].Status = state.Error
+func (g *Game) sendBatchRequests() {
+    g.State.Mutex.Lock()
+    tilt := g.State.CurrentTilt
+    g.State.PacketID++
+    id := g.State.PacketID
+    g.State.Mutex.Unlock()
+
+    go simulation.SendPOSTRequest(
+        "http://localhost:8000/tfluna/sensor",
+        simulation.GenerateRandomTFLunaData(),
+        fmt.Sprintf("tfluna_%d", id), g.State, 180.0,
+        color.RGBA{R: 255, G: 50, B: 50, A: 255},
+    )
+    go simulation.SendPOSTRequest(
+        "http://localhost:8000/mpu/sensor",
+        simulation.GenerateRandomMPUData(tilt),
+        fmt.Sprintf("mpu_%d", id), g.State, 200.0,
+        color.RGBA{R: 50, G: 150, B: 255, A: 255},
+    )
+    go simulation.SendPOSTRequest(
+        "http://localhost:8000/imx477/sensor",
+        simulation.GenerateRandomIMXData(),
+        fmt.Sprintf("imx_%d", id), g.State, 220.0,
+        color.RGBA{R: 50, G: 255, B: 50, A: 255},
+    )
+}
+```
+
+**Características**:
+- 3 workers independientes por batch
+- Ejecutan en paralelo sin bloquearse
+- Batches cada 2 segundos mientras simulación activa
+
+### 2. Patrón Toggle con Channel
+
+**Ubicación**: `game/input.go` - `toggleSimulation()`
+
+```go
+func (g *Game) toggleSimulation() {
+    g.State.Mutex.Lock()
+    if g.State.SimulacionIniciada {
+        close(g.State.StopChan)  // Señal de parada
+        g.State.StopChan = nil
+        g.State.SimulacionIniciada = false
+        g.State.Mutex.Unlock()
         return
     }
-    visState.Packets[packetID].Status = state.ArrivedAtAPI
-}
-```
-
-**2. En Game Loop** (`game/game.go`):
-```go
-func (g *Game) updatePacketFSM() {
-    g.State.Mutex.Lock()           // ← LOCK al inicio
-    defer g.State.Mutex.Unlock()   // ← UNLOCK automático al salir
     
-    for _, packet := range g.State.Packets {
-        // ... actualizar posiciones y estados ...
-    }
+    g.State.StopChan = make(chan struct{})
+    stopChan := g.State.StopChan
+    g.State.SimulacionIniciada = true
+    g.State.Mutex.Unlock()
+    
+    go g.runContinuousSimulation(stopChan)
 }
-```
 
-**Características**:
-- ✅ Previene race conditions
-- ✅ Uso de `defer` para garantizar unlock
-- ✅ Locks de corta duración (minimiza contención)
-- ✅ Thread-safe: múltiples goroutines + game loop
-
-**Zonas Críticas Protegidas**:
-1. Creación de paquetes (línea ~73-84 en `workers.go`)
-2. Actualización de estado HTTP (línea ~101-119 en `workers.go`)
-3. Actualización de FSM (línea ~150+ en `game.go`)
-4. Inicio de simulación (línea ~113-128 en `game.go`)
-
----
-
-### **3. Patrón Finite State Machine (FSM) Concurrente**
-**Ubicación**: `game/game.go` - `updatePacketFSM()` y `handlePacketArrival()`
-
-**Descripción**: Máquina de estados que controla el ciclo de vida de cada paquete de datos.
-
-#### **Estados del Paquete** (`state/state.go`):
-```go
-const (
-    Idle PacketStatus = iota
-    SendingToAPI          // 1. Viajando a Python API
-    ArrivedAtAPI          // 2. Llegó a Python API
-    ProcessingAtAPI       // 3. Procesando en Python API
-    SendingToRabbit       // 4. Viajando a RabbitMQ
-    ProcessingAtRabbit    // 5. Procesando en RabbitMQ
-    SendingToWebsocket    // 6. Viajando a WebSocket API
-    ProcessingAtWebsocket // 7. Procesando en WebSocket API
-    SendingToFrontend     // 8. Viajando al Monitor
-    Done                  // 9. Completado
-    Error                 // X. Error en comunicación
-)
-```
-
-#### **Transiciones de Estado**:
-```
-[Goroutine Worker]         [Game Loop FSM]
-       ↓                          ↓
-  SendingToAPI  ─────HTTP────→ ArrivedAtAPI
-                                   ↓
-                              ProcessingAtAPI (30 frames)
-                                   ↓
-                              SendingToRabbit
-                                   ↓
-                              ProcessingAtRabbit (30 frames)
-                                   ↓
-                              SendingToWebsocket
-                                   ↓
-                              ProcessingAtWebsocket (30 frames)
-                                   ↓
-                              SendingToFrontend
-                                   ↓
-                                 Done
-```
-
-**Características**:
-- ✅ FSM actualizada a 60 FPS (game loop)
-- ✅ Transiciones visuales suaves
-- ✅ Timers de procesamiento (30 frames = 0.5s)
-- ✅ Manejo de errores (estado `Error`)
-
-**Código de FSM** (`game/game.go` - `handlePacketArrival()`):
-```go
-func (g *Game) handlePacketArrival(packet *state.PacketState) {
-    switch packet.Status {
-    case state.ProcessingAtAPI:
-        if packet.ProcessingTimer > 0 {
-            packet.ProcessingTimer--
-        } else {
-            packet.Status = state.SendingToRabbit
-            packet.TargetX = iconRabbitX
-            packet.TargetY = iconRabbitY
+func (g *Game) runContinuousSimulation(stopChan chan struct{}) {
+    ticker := time.NewTicker(2 * time.Second)
+    defer ticker.Stop()
+    
+    g.sendBatchRequests()  // Primer batch inmediato
+    
+    for {
+        select {
+        case <-stopChan:
+            return
+        case <-ticker.C:
+            g.sendBatchRequests()
         }
-    // ... más estados ...
     }
 }
 ```
 
----
+### 3. Shared State con Mutex
 
-### **4. Patrón Fire-and-Forget con Callback Visual**
-**Ubicación**: `simulation/workers.go` - `SendPOSTRequest()`
+**Ubicación**: `state/state.go` y `simulation/workers.go`
 
-**Descripción**: Las goroutines se lanzan sin esperar respuesta inmediata (`fire-and-forget`), pero actualizan el estado visual como "callback".
-
-**Flujo**:
-```
-Usuario Click
-     ↓
-startSimulation()
-     ↓
-go SendPOSTRequest() × 3  ← Fire (no esperamos aquí)
-     ↓
-return inmediatamente
-     ↓
-[En paralelo]
-Goroutines ejecutan HTTP
-     ↓
-Actualizan estado visual ← Forget (callback visual)
-     ↓
-Game loop renderiza
-```
-
-**Características**:
-- ✅ No bloquea UI
-- ✅ Respuesta inmediata al usuario
-- ✅ Actualización visual en tiempo real
-- ✅ Simula latencia de red realista (500-1000ms)
-
----
-
-### **5. Patrón Producer-Consumer Implícito**
-**Ubicación**: `simulation/workers.go` (Producers) + `game/game.go` (Consumer)
-
-**Descripción**: Las goroutines producen eventos de estado, el game loop los consume y visualiza.
-
-**Roles**:
-- **Producers (Goroutines)**: 
-  - Generan datos de sensores
-  - Envían HTTP requests
-  - Actualizan estado de paquetes
-  
-- **Consumer (Game Loop)**:
-  - Lee estado de paquetes
-  - Actualiza FSM
-  - Renderiza visualización
-
-**Sincronización**:
-- Sin canales explícitos
-- Usa mutex como mecanismo de coordinación
-- Game loop a 60 FPS actúa como consumidor periódico
-
----
-
-## Mecanismos de Sincronización
-
-### **1. Mutex (`sync.Mutex`)**
-**Ubicación**: `state/state.go` - Campo `Mutex` en `VisualState`
-
-**Propósito**: Proteger acceso concurrente al estado compartido
-
-**Uso**:
 ```go
-// Escritura
+// En Worker Goroutine
 visState.Mutex.Lock()
-visState.Packets[id] = newPacket
+packet := &state.PacketState{...}
+visState.Packets[packetID] = packet
 visState.Mutex.Unlock()
 
-// Lectura con defer
+// ... HTTP request ...
+
 visState.Mutex.Lock()
 defer visState.Mutex.Unlock()
-for _, packet := range visState.Packets {
-    // ... operaciones seguras ...
-}
+visState.Packets[packetID].Status = state.ArrivedAtAPI
 ```
 
-**Buenas Prácticas Aplicadas**:
-- ✅ `defer` para garantizar unlock
-- ✅ Locks de corta duración
-- ✅ Sin locks anidados (evita deadlocks)
-- ✅ Consistencia: siempre lock antes de acceder
+**Zonas Críticas Protegidas**:
+1. Creación de paquetes
+2. Actualización de estado HTTP
+3. Actualización de FSM en game loop
+4. Toggle de simulación
 
-### **2. Timers de Simulación**
-**Ubicación**: `simulation/workers.go` - Línea ~97
+### 4. FSM Concurrente
 
-```go
-// Simular latencia de red (500-1000ms)
-time.Sleep(time.Duration(500+rand.Intn(500)) * time.Millisecond)
+**Estados del Paquete**:
+```
+SendingToAPI → ArrivedAtAPI → ProcessingAtAPI →
+SendingToRabbit → ProcessingAtRabbit →
+SendingToWebsocket → ProcessingAtWebsocket →
+SendingToFrontend → Done
 ```
 
-**Propósito**: Simular condiciones realistas de red
+---
+
+## Diagrama de Flujo
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         USUARIO                                  │
+│                   Click en "CREAR"                              │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                    toggleSimulation()                            │
+│                                                                  │
+│  1. Crear canal StopChan                                        │
+│  2. Lanzar goroutine runContinuousSimulation()                  │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│               runContinuousSimulation()                          │
+│                                                                  │
+│  loop {                                                          │
+│    select {                                                      │
+│      case <-stopChan: return                                    │
+│      case <-ticker.C: sendBatchRequests()                       │
+│    }                                                             │
+│  }                                                               │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+           ┌──────────┬──────────┬──────────┐
+           ↓          ↓          ↓          
+    ┌──────────┐ ┌──────────┐ ┌──────────┐
+    │ Goroutine│ │ Goroutine│ │ Goroutine│
+    │ TFLuna   │ │   MPU    │ │   IMX    │
+    │   🔴     │ │   🔵     │ │   🟢     │
+    └──────────┘ └──────────┘ └──────────┘
+           ↓          ↓          ↓
+           └──────────┴──────────┘
+                      ↓
+┌─────────────────────────────────────────────────────────────────┐
+│              SendPOSTRequest() [EN PARALELO]                     │
+│                                                                  │
+│  1. Lock Mutex                                                  │
+│  2. Crear PacketState inicial                                   │
+│  3. Unlock Mutex                                                │
+│  4. Sleep (500-1000ms) - Simular latencia                      │
+│  5. HTTP POST a localhost:8000/[sensor]/sensor                 │
+│  6. Lock Mutex                                                  │
+│  7. Actualizar estado (ArrivedAtAPI o Error)                   │
+│  8. Unlock Mutex                                                │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                      GAME LOOP (60 FPS)                          │
+│                                                                  │
+│  Update():                                                      │
+│    - handleInput()                                              │
+│    - updatePacketFSM()                                          │
+│                                                                  │
+│  Draw():                                                        │
+│    - Fondo, Trípode, Iconos, Paquetes, Botón, Dashboard        │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Sincronización con Mutex
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    MUTEX (sync.Mutex)                            │
+│                   Protege: VisualState                           │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+        ┌─────────────────────┴─────────────────────┐
+        ↓                                           ↓
+┌──────────────────┐                      ┌──────────────────┐
+│  WRITERS         │                      │  READERS         │
+│  (Goroutines)    │                      │  (Game Loop)     │
+├──────────────────┤                      ├──────────────────┤
+│ 1. Lock()        │                      │ 1. Lock()        │
+│ 2. Write state   │                      │ 2. Read state    │
+│ 3. Unlock()      │                      │ 3. Unlock()      │
+└──────────────────┘                      └──────────────────┘
+```
+
+---
+
+## Timeline de Ejecución
+
+```
+Tiempo (ms)    Evento
+──────────────────────────────────────────────────────────────────
+0              Usuario presiona CREAR
+1              toggleSimulation() ejecuta
+2              runContinuousSimulation() inicia
+3              Primer batch: 3 goroutines lanzan
+4-5            Goroutines crean PacketState (con Mutex)
+6-506          Goroutines duermen (simulan latencia de red)
+507-1007       HTTP POST ejecuta en paralelo
+1008           Primera respuesta llega → ArrivedAtAPI
+2000           Segundo batch se dispara (ticker)
+...            Continúa cada 2 segundos
+N              Usuario presiona DETENER
+N+1            close(StopChan) → goroutine controller termina
+```
+
+---
+
+## Sistema de Animación
+
+### Trípode Geova
+- **Sprite**: `geova_tilt_anim.png` (896×128 px)
+- **Frames**: 7 frames horizontales de 128×128 px
+- **Mapeo de inclinación**:
+  - Frame 0: ≤ -12.5° (muy inclinado izquierda)
+  - Frame 1-2: Inclinación izquierda
+  - Frame 3: Nivelado (-2.5° a +2.5°)
+  - Frame 4-5: Inclinación derecha
+  - Frame 6: ≥ +12.5° (muy inclinado derecha)
+
+### Paquetes de Datos
+- **Sprite**: `data_packet_anim.png`
+- **Animación**: 6 frames ciclando
+- **Colores distintivos**: Rojo (TFLuna), Azul (MPU), Verde (IMX)
+
+### Iconos Backend
+- **Idle**: Sprites estáticos (64×64)
+- **Activos**: 6 frames de animación (384×64)
+- **Trigger**: Timer > 0 cuando procesan datos
 
 ---
 
 ## Análisis de Rendimiento
 
-### **Concurrencia vs Secuencial**
+### Concurrencia vs Secuencial
 
-**Escenario**: Envío de 3 requests con latencia ~750ms cada uno
+| Enfoque | Tiempo por Batch | Mejora |
+|---------|------------------|--------|
+| Secuencial | ~2250ms (750×3) | - |
+| **Concurrente** | **~750ms** | **3x** |
 
-| Enfoque | Tiempo Total | Aprovechamiento CPU |
-|---------|--------------|---------------------|
-| Secuencial | ~2250ms (750×3) | Bajo (espera I/O) |
-| **Concurrente (actual)** | **~750ms** | Alto (3 requests paralelos) |
+### Verificar Race Conditions
 
-**Mejora**: **3x más rápido** 🚀
-
-### **Race Condition Prevention**
-
-Sin mutex, podrían ocurrir:
-- ❌ Pérdida de actualizaciones de paquetes
-- ❌ Corrupción del mapa `Packets`
-- ❌ Lecturas inconsistentes en UI
-
-Con mutex:
-- ✅ Todas las operaciones son atómicas
-- ✅ Estado siempre consistente
-- ✅ Sin race conditions (verificable con `go run -race .`)
-
----
-
-## Cómo Verificar Concurrencia
-
-### **1. Detectar Race Conditions**
 ```bash
 go run -race .
 ```
+
 Si hay problemas, Go mostrará warnings detallados.
 
-### **2. Ver Goroutines Activas**
-Agrega al código (temporal):
-```go
-import "runtime"
+---
 
-func (g *Game) Update() error {
-    fmt.Printf("Goroutines activas: %d\n", runtime.NumGoroutine())
-    // ...
-}
+## Fondo Personalizado
+
+### Agregar Fondo
+
+1. Preparar imagen (recomendado: 900×650 px, PNG)
+2. Copiar a `images/background.png`
+3. El fondo se carga automáticamente al iniciar
+
+Si no existe el archivo, se usa fondo gris oscuro por defecto.
+
+### Sugerencias de Diseño
+
+- Colores oscuros (para que elementos resalten)
+- Evitar patrones recargados
+- Gradientes suaves funcionan bien
+
+### Crear Fondo Simple con Python
+
+```python
+from PIL import Image, ImageDraw
+
+img = Image.new('RGB', (900, 650), color='#1a1a1a')
+draw = ImageDraw.Draw(img)
+
+for y in range(650):
+    gray = int(26 + (y / 650) * 20)
+    draw.line([(0, y), (900, y)], fill=(gray, gray, gray))
+
+img.save('images/background.png')
 ```
 
-### **3. Profiling de Concurrencia**
-```bash
-go build -o geova.exe
-go tool trace trace.out
-```
+---
+
+## Patrones de Concurrencia - Resumen
+
+| Patrón | Usado | Ubicación |
+|--------|-------|-----------|
+| Worker Pool (Fan-Out) | ✅ | `input.go:sendBatchRequests()` |
+| Shared State + Mutex | ✅ | `state.go` + `workers.go` |
+| FSM Concurrente | ✅ | `fsm.go` |
+| Channel para Toggle | ✅ | `input.go:toggleSimulation()` |
+| Select Statement | ✅ | `input.go:runContinuousSimulation()` |
+| Ticker (time.Ticker) | ✅ | `input.go:runContinuousSimulation()` |
+| Fire-and-Forget | ✅ | `workers.go:SendPOSTRequest()` |
+| Producer-Consumer | ✅ | Workers → Game Loop |
 
 ---
 
 ## Ventajas de Esta Arquitectura
 
-1. **Escalabilidad**: Fácil agregar más sensores (más goroutines)
-2. **Rendimiento**: I/O concurrente aprovecha mejor el CPU
-3. **Realismo**: Simula hardware real que envía datos en paralelo
-4. **Mantenibilidad**: Código limpio y separado por responsabilidades
-5. **Visualización**: Usuario ve el paralelismo en tiempo real
+1. **Escalabilidad**: Fácil agregar más sensores
+2. **Rendimiento**: I/O concurrente (3x más rápido)
+3. **Realismo**: Simula hardware real con latencia
+4. **Visual**: Usuario ve concurrencia en tiempo real
+5. **Responsive**: UI nunca se bloquea
+6. **Modular**: Código separado por responsabilidades
+7. **Control**: Toggle para iniciar/detener en cualquier momento
 
 ---
 
 ## Mejoras Futuras Potenciales
 
-### **1. Usar Channels en lugar de Mutex puro**
-```go
-type PacketUpdate struct {
-    PacketID string
-    NewStatus state.PacketStatus
-}
-
-updatesChan := make(chan PacketUpdate, 10)
-
-// En worker:
-updatesChan <- PacketUpdate{packetID, state.ArrivedAtAPI}
-
-// En game loop:
-select {
-case update := <-updatesChan:
-    // procesar sin mutex
-default:
-    // continuar
-}
-```
-
-**Ventajas**: 
-- Más idiomático en Go
-- Mejor para alta concurrencia
-- Menos contención de locks
-
-### **2. Worker Pool con Límite**
-```go
-type WorkerPool struct {
-    tasks chan Task
-    workers int
-}
-
-// Limitar a N goroutines máximo
-pool := NewWorkerPool(maxWorkers)
-```
-
-**Ventajas**:
-- Control de recursos
-- Evita crear demasiadas goroutines
-
-### **3. Context para Cancelación**
-```go
-ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-defer cancel()
-
-go SendPOSTRequestWithContext(ctx, url, data, state)
-```
-
-**Ventajas**:
-- Timeout automático
-- Cancelación coordinada
-- Liberación de recursos
+1. **Context para Cancelación**: Timeout automático de requests
+2. **Worker Pool con Límite**: Control de goroutines máximas
+3. **Métricas**: Contador de requests exitosos/fallidos
+4. **Configuración**: Intervalo de peticiones configurable
+5. **RWMutex**: Para mejor rendimiento de lecturas
 
 ---
 
-## Patrones de Concurrencia - Referencia
+## Licencia
 
-| Patrón | Usado | Ubicación |
-|--------|-------|-----------|
-| Worker Pool (Fan-Out) | ✅ | `game.go:130-145` |
-| Shared State + Mutex | ✅ | `state.go` + `workers.go` |
-| FSM Concurrente | ✅ | `game.go:150+` |
-| Fire-and-Forget | ✅ | `workers.go:SendPOSTRequest()` |
-| Producer-Consumer | ✅ | Workers → Game Loop |
-| Channels | ❌ | (Mejora futura) |
-| Select Statement | ❌ | (Mejora futura) |
-| Context | ❌ | (Mejora futura) |
-| WaitGroup | ❌ | (No necesario) |
-| Once | ❌ | (No necesario) |
+MIT License
 
 ---
 
-## Conclusión
-
-Este proyecto es un **excelente ejemplo** de:
-- ✅ Concurrencia básica bien implementada
-- ✅ Sincronización correcta con Mutex
-- ✅ Visualización de concurrencia en tiempo real
-- ✅ Separación de responsabilidades (Workers vs UI)
-- ✅ Código limpio y mantenible
-
-**Ideal para**:
-- Aprender Go concurrency
-- Visualizar conceptos abstractos
-- Simular sistemas distribuidos
-- Proyecto educativo/portafolio
-
-**Total de Goroutines por Simulación**: **3** (una por sensor)
-**Total con Game Loop**: **4** (3 workers + 1 main loop)
+**Goroutines por Batch**: 3 (una por sensor)  
+**Total con Control Loop**: 4+ (3 workers × batches + 1 main loop + 1 controller)

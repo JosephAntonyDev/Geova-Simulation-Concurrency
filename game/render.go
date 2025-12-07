@@ -89,8 +89,13 @@ func (g *Game) drawButton(screen *ebiten.Image) {
 	op.GeoM.Translate(float64(g.BotonRect.Min.X), float64(g.BotonRect.Min.Y))
 
 	if g.State.SimulacionIniciada {
-		op.ColorScale.Scale(0.5, 0.5, 0.5, 1.0)
-		screen.DrawImage(g.Assets.ButtonCreateUp, op)
+		op.ColorScale.Scale(1.0, 0.4, 0.4, 1.0)
+		if g.isBotonPressed {
+			screen.DrawImage(g.Assets.ButtonCreateDown, op)
+		} else {
+			screen.DrawImage(g.Assets.ButtonCreateUp, op)
+		}
+		ebitenutil.DebugPrintAt(screen, "DETENER", g.BotonRect.Min.X+25, g.BotonRect.Min.Y+18)
 	} else if g.isBotonPressed {
 		screen.DrawImage(g.Assets.ButtonCreateDown, op)
 	} else {
