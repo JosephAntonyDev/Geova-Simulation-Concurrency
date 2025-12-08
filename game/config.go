@@ -26,4 +26,9 @@ const (
 	tripodeFrameWidth  = 128
 	tripodeFrameHeight = 128
 	tripodeFrameCount  = 7
+
+	monitorFrameWidth  = 256
+	monitorFrameHeight = 192
+	monitorFrameCount  = 8
+	monitorAnimSpeed   = 8
 )

@@ -14,7 +14,7 @@ type Assets struct {
 
 	// Hardware
 	GeovaTripod *ebiten.Image
-	UITiltMeter *ebiten.Image // (El medidor de inclinación)
+	UITiltMeter *ebiten.Image
 
 	// Iconos de Backend (Inactivos)
 	IconPythonIdle    *ebiten.Image
@@ -31,14 +31,17 @@ type Assets struct {
 
 	// Frontend
 	IconMonitor    *ebiten.Image
+	MonitorAnim    *ebiten.Image
 	UIGaugeBG      *ebiten.Image
 	UIGaugeNeedle  *ebiten.Image
 	UIProgressBG   *ebiten.Image
 	UIProgressFill *ebiten.Image
 
 	// Botones
-	ButtonCreateUp   *ebiten.Image
-	ButtonCreateDown *ebiten.Image
+	ButtonStartUp   *ebiten.Image
+	ButtonStartDown *ebiten.Image
+	ButtonStopUp    *ebiten.Image
+	ButtonStopDown  *ebiten.Image
 }
 
 // loadSprite es un helper interno para cargar una imagen o fallar.
@@ -84,14 +87,17 @@ func LoadAssets() *Assets {
 		DataPacketAnim: loadSprite("images/data_packet_anim.png"),
 
 		// Frontend
-		IconMonitor:    loadSprite("images/monitor.png"),
+		IconMonitor:    loadSprite("images/frontend_monitor.png"),
+		MonitorAnim:    loadSprite("images/frontend_monitor_spritesheet.png"),
 		UIGaugeBG:      loadSprite("images/ui_gauge_background.png"),
 		UIGaugeNeedle:  loadSprite("images/ui_gauge_needle.png"),
 		UIProgressBG:   loadSprite("images/ui_progressbar_background.png"),
 		UIProgressFill: loadSprite("images/ui_progressbar_fill.png"),
 
 		// Botones
-		ButtonCreateUp:   loadSprite("images/boton_crear_up.png"),
-		ButtonCreateDown: loadSprite("images/boton_crear_down.png"),
+		ButtonStartUp:   loadSprite("images/boton_comenzar.png"),
+		ButtonStartDown: loadSprite("images/boton_comenzar_pushed.png"),
+		ButtonStopUp:    loadSprite("images/boton_detener.png"),
+		ButtonStopDown:  loadSprite("images/boton_detener_pushed.png"),
 	}
 }

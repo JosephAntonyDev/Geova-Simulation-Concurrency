@@ -89,17 +89,31 @@ func (g *Game) drawButton(screen *ebiten.Image) {
 	op.GeoM.Translate(float64(g.BotonRect.Min.X), float64(g.BotonRect.Min.Y))
 
 	if g.State.SimulacionIniciada {
-		op.ColorScale.Scale(1.0, 0.4, 0.4, 1.0)
 		if g.isBotonPressed {
-			screen.DrawImage(g.Assets.ButtonCreateDown, op)
+			screen.DrawImage(g.Assets.ButtonStopDown, op)
 		} else {
-			screen.DrawImage(g.Assets.ButtonCreateUp, op)
+			screen.DrawImage(g.Assets.ButtonStopUp, op)
 		}
-		ebitenutil.DebugPrintAt(screen, "DETENER", g.BotonRect.Min.X+25, g.BotonRect.Min.Y+18)
-	} else if g.isBotonPressed {
-		screen.DrawImage(g.Assets.ButtonCreateDown, op)
 	} else {
-		screen.DrawImage(g.Assets.ButtonCreateUp, op)
+		if g.isBotonPressed {
+			screen.DrawImage(g.Assets.ButtonStartDown, op)
+		} else {
+			screen.DrawImage(g.Assets.ButtonStartUp, op)
+		}
+	}
+}
+
+func (g *Game) drawMonitor(screen *ebiten.Image) {
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(monitorX, monitorY)
+
+	if g.State.SimulacionIniciada {
+		frameIndex := (g.animIconCounter / monitorAnimSpeed) % monitorFrameCount
+		sx := frameIndex * monitorFrameWidth
+		rect := image.Rect(sx, 0, sx+monitorFrameWidth, monitorFrameHeight)
+		screen.DrawImage(g.Assets.MonitorAnim.SubImage(rect).(*ebiten.Image), op)
+	} else {
+		screen.DrawImage(g.Assets.IconMonitor, op)
 	}
 }
 
@@ -111,9 +125,7 @@ func (g *Game) drawIcons(screen *ebiten.Image) {
 	g.drawIcon(screen, g.Assets.IconWebsocketIdle, g.Assets.IconWebsocketActiveAnim,
 		g.State.WebsocketAPITimer, iconWebsocketX, iconWebsocketY)
 
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(monitorX, monitorY)
-	screen.DrawImage(g.Assets.IconMonitor, op)
+	g.drawMonitor(screen)
 }
 
 func (g *Game) drawIcon(screen *ebiten.Image, idle *ebiten.Image, anim *ebiten.Image,
